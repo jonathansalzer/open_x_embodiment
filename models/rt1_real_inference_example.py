@@ -145,7 +145,7 @@ class RT1Policy:
       action['terminate_episode'] = np.zeros_like(action['terminate_episode'])
       action['terminate_episode'][-1] = 1
     return action
-<
+  
 # CUS: preprocess image
 def load_and_preprocess_image(image_path):
     image = Image.open(image_path).convert('RGB').resize((300, 300))
@@ -203,8 +203,17 @@ def main(argv):
     'natural_language_embedding': jnp.ones((15, 512)),
   }
 
-  
-  print(policy.action(obs))
+  output_actions = policy.action(obs)
+  gripper_closedness_action = output_actions["gripper_closedness_action"]
+  rotation_delta = output_actions["rotation_delta"]
+  terminate_episode = output_actions["terminate_episode"]
+  world_vector = output_actions["world_vector"]
+
+  print("gripper_closedness_action: ", gripper_closedness_action)
+  print("rotation_delta: ", rotation_delta)
+  print("terminate_episode: ", terminate_episode)
+  print("world_vector: ", world_vector)
+
 
 
 if __name__ == '__main__':
