@@ -6,10 +6,12 @@ from absl import app
 from absl import flags
 
 from flax.training import checkpoints
+from PIL import Image
 import jax
 import jax.numpy as jnp
 import numpy as np
 import tensorflow as tf
+import tensorflow_hub as hub
 
 import rt1
 
@@ -143,6 +145,21 @@ class RT1Policy:
       action['terminate_episode'] = np.zeros_like(action['terminate_episode'])
       action['terminate_episode'][-1] = 1
     return action
+<
+# CUS: preprocess image
+def load_and_preprocess_image(image_path):
+    image = Image.open(image_path).convert('RGB').resize((300, 300))
+    image = np.array(image, dtype=np.float32) / 255.0  # Normalize to [0,1]
+    return image
+
+# CUS: taken from tensorflow example collab
+def normalize_task_name(task_name):
+
+  replaced = task_name.replace('_', ' ').replace('1f', ' ').replace(
+      '4f', ' ').replace('-', ' ').replace('50',
+                                           ' ').replace('55',
+                                                        ' ').replace('56', ' ')
+  return replaced.lstrip(' ').rstrip(' ')
 
 
 def main(argv):
@@ -168,21 +185,25 @@ def main(argv):
       seqlen=sequence_length,
   )
 
-  # Create a fake observation and run the policy.
-  image_path = './imgs/0.jpg'
-  image_data = tf.io.read_file(image_path)
-  image = tf.image.decode_jpeg(image_data, channels=3)
-  image = tf.image.resize(image, (300, 300))
-  image = image / 255.0
-  image_sequence = jnp.array(np.repeat(image[np.newaxis, :, :, :], 15, axis=0))
+
+  # create array of 15 images
+  image_path = "./imgs/test.jpg"
+  images = np.array([load_and_preprocess_image(image_path) for i in range(0,15)])
+  #images = jnp.array(images)  # Convert to JAX array
+
+  # EMBEDDING:
+  embed = hub.load('https://tfhub.dev/google/universal-sentence-encoder-large/5')
+
+  natural_language_instruction = "Pick up yellow plush toy and place it on the white rectangle."
+  natural_language_embedding = embed([normalize_task_name(natural_language_instruction)])[0]
 
   obs = {
-      'image': image_sequence,
-      'natural_language_embedding': jnp.ones((15, 512)),
+    'image': images,
+    #'natural_language_embedding': natural_language_embedding,
+    'natural_language_embedding': jnp.ones((15, 512)),
   }
+
   
-  #print(image)
-  #print(jnp.ones((15, 300, 300, 3)))
   print(policy.action(obs))
 
 
