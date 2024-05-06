@@ -1,12 +1,16 @@
 """Runs inference with a RT-1 model."""
 
+import time
+import camera as cam
+import cv2
+import PIL.Image as Image
+from collections import deque
 import copy
 
 from absl import app
 from absl import flags
 
 from flax.training import checkpoints
-from PIL import Image
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -14,6 +18,8 @@ import tensorflow as tf
 import tensorflow_hub as hub
 
 import rt1
+
+camera = cam.Camera()
 
 
 _CHECKPOINT_PATH = flags.DEFINE_string(
@@ -145,21 +151,6 @@ class RT1Policy:
       action['terminate_episode'] = np.zeros_like(action['terminate_episode'])
       action['terminate_episode'][-1] = 1
     return action
-  
-# CUS: preprocess image
-def load_and_preprocess_image(image_path):
-    image = Image.open(image_path).convert('RGB').resize((300, 300))
-    image = np.array(image, dtype=np.float32) / 255.0  # Normalize to [0,1]
-    return image
-
-# CUS: taken from tensorflow example collab
-def normalize_task_name(task_name):
-
-  replaced = task_name.replace('_', ' ').replace('1f', ' ').replace(
-      '4f', ' ').replace('-', ' ').replace('50',
-                                           ' ').replace('55',
-                                                        ' ').replace('56', ' ')
-  return replaced.lstrip(' ').rstrip(' ')
 
 
 def main(argv):
@@ -185,36 +176,63 @@ def main(argv):
       seqlen=sequence_length,
   )
 
+  img_nr = 0
 
-  # create array of 15 images
-  image_path = "./imgs/test.jpg"
-  images = np.array([load_and_preprocess_image(image_path) for i in range(0,15)])
-  #images = jnp.array(images)  # Convert to JAX array
+  language_embedding = get_lang_embedding("Pick up the black and white football.")
+  img_queue = deque(maxlen=15)
+  first_image = get_bridge_image(img_nr)
+  for _ in range(15):
+    img_queue.append(first_image)
 
-  # EMBEDDING:
-  embed = hub.load('https://tfhub.dev/google/universal-sentence-encoder-large/5')
+  while True:
+    img_nr += 1
 
-  natural_language_instruction = "Pick up yellow plush toy and place it on the white rectangle."
-  natural_language_embedding = embed([normalize_task_name(natural_language_instruction)])[0]
+    img_queue.append(get_bridge_image(img_nr))
+    
+    # Create an observation and run the policy.
+    obs = {
+        'image': np.array(img_queue),
+        'natural_language_embedding': np.array([language_embedding for i in range(0,15)]),
+    }
 
-  obs = {
-    'image': images,
-    #'natural_language_embedding': natural_language_embedding,
-    'natural_language_embedding': jnp.ones((15, 512)),
-  }
+    action = policy.action(obs)
 
-  output_actions = policy.action(obs)
-  gripper_closedness_action = output_actions["gripper_closedness_action"]
-  rotation_delta = output_actions["rotation_delta"]
-  terminate_episode = output_actions["terminate_episode"]
-  world_vector = output_actions["world_vector"]
+    gripper_closedness_action = action["gripper_closedness_action"]
+    rotation_delta = action["rotation_delta"]
+    terminate_episode = action["terminate_episode"]
+    world_vector = action["world_vector"]
 
-  print("gripper_closedness_action: ", gripper_closedness_action)
-  print("rotation_delta: ", rotation_delta)
-  print("terminate_episode: ", terminate_episode)
-  print("world_vector: ", world_vector)
+    # print hash for gripper, rotation and world vector
+    print(str(hash(str(gripper_closedness_action) + str(rotation_delta) + str(world_vector))) + " " + str(terminate_episode))
 
 
+    time.sleep(0.5)
+
+def get_image():
+    image = camera.get_picture()
+    image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
+
+    if isinstance(image, np.ndarray):
+        image = Image.fromarray(image)
+    image = image.convert('RGB')
+    image = tf.image.resize(image, (300, 300))
+    image = np.array(image, dtype=np.float32) / 255.0  # Normalize to [0,1]
+    return image
+
+def get_bridge_image(key=0):
+    # get image from disk
+    image = Image.open(f"./imgs/bridge/{key+1}.png", 'r')
+    image = image.convert('RGB')
+    image = tf.image.resize(image, (300, 300))
+    image = np.array(image, dtype=np.float32) / 255.0
+    print("Yielding image " + str(key+1))
+    return image
+
+def get_lang_embedding(language_instruction):
+    # Get the language embedding from the instruction.
+    embed = hub.load('https://tfhub.dev/google/universal-sentence-encoder-large/5')
+    language_embedding = embed([language_instruction])[0]
+    return language_embedding
 
 if __name__ == '__main__':
   app.run(main)
