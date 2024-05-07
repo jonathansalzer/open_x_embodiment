@@ -178,7 +178,8 @@ def main(argv):
 
   img_nr = 0
 
-  language_embedding = get_lang_embedding("Pick up the black and white football.")
+  language_instruction = "Place the can to the left of the pot."
+  language_embedding = get_lang_embedding(language_instruction)
   img_queue = deque(maxlen=15)
   first_image = get_bridge_image(img_nr)
   for _ in range(15):
@@ -193,6 +194,7 @@ def main(argv):
     obs = {
         'image': np.array(img_queue),
         'natural_language_embedding': np.array([language_embedding for i in range(0,15)]),
+        'natural_language_instruction': language_instruction,
     }
 
     action = policy.action(obs)

@@ -25,6 +25,27 @@ class Camera:
             return image_ocv
         print("Error: Could not grab image")
         return None
+    
+    def save_picture(self, filename):
+        img = self.get_picture()
+        path = "imgs/umi/"
+        cv2.imwrite(path + filename, img)
 
     def close(self):
         self.zed.close()
+
+if __name__ == "__main__":
+    camera = Camera()
+
+    # on each spacebar press, save a picture
+    i = 0
+    while True:
+        i += 1
+        inp = input("Press Enter to save a picture or q to quit.")
+        if inp == "q":
+            print("Quitting...")
+            break
+        print(f"Saving picture {i}.png...")
+        camera.save_picture(f"{i}.png")
+
+    camera.close()
