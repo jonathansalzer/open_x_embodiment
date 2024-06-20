@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[1]:
 
 
 # !pip install rlds dm-reverb[tensorflow]
 # !pip install flax jax
 
 
-# In[ ]:
+# In[2]:
 
 
 # @title Imports
@@ -46,10 +46,12 @@ from typing import Callable, Sequence
 import matplotlib.pyplot as plt
 from flax.training import checkpoints
 
+import os
+
 
 # # Data Pipeline
 
-# In[ ]:
+# In[3]:
 
 
 # @title Transformation definitions
@@ -429,7 +431,7 @@ def n_step_pattern_builder(n: int) -> Any:
   return transform_fn
 
 
-# In[ ]:
+# In[4]:
 
 
 # @title Shared map functions
@@ -488,7 +490,7 @@ def terminate_bool_to_act(terminate_episode: tf.Tensor) -> tf.Tensor:
   )
 
 
-# In[ ]:
+# In[5]:
 
 
 # @title RT-1 action map function
@@ -498,7 +500,7 @@ def rt_1_map_action(to_step: rlds.Step, from_step: rlds.Step):
   to_step[rlds.ACTION] = from_step[rlds.ACTION]
 
 
-# In[ ]:
+# In[6]:
 
 
 # @title Bridge action map function
@@ -579,7 +581,7 @@ def bridge_map_action(to_step: rlds.Step, from_step: rlds.Step):
   to_step['action'] = _rescale_action(to_step['action'])
 
 
-# In[ ]:
+# In[7]:
 
 
 # @title Task Agnostic Robot Play map function
@@ -635,7 +637,7 @@ taco_play_map_observation = functools.partial(
     to_image_feature_names=('image',))
 
 
-# In[ ]:
+# In[8]:
 
 
 # @title Jaco Play map function
@@ -661,7 +663,7 @@ def jaco_play_map_action(to_step: rlds.Step, from_step: rlds.Step):
 
 
 
-# In[ ]:
+# In[9]:
 
 
 # @title Cable Routing map function
@@ -677,7 +679,7 @@ def berkeley_cable_routing_map_action(to_step: rlds.Step, from_step: rlds.Step):
 
 
 
-# In[ ]:
+# In[10]:
 
 
 # @title RoboTurk map function
@@ -700,7 +702,7 @@ roboturk_map_observation = functools.partial(
 )
 
 
-# In[ ]:
+# In[11]:
 
 
 # @title NYU VINN map function
@@ -731,7 +733,7 @@ def nyu_door_opening_surprising_effectiveness_map_action(to_step: rlds.Step, fro
 
 
 
-# In[ ]:
+# In[12]:
 
 
 # @title Austin VIOLA map function
@@ -777,7 +779,7 @@ viola_map_observation = functools.partial(
 )
 
 
-# In[ ]:
+# In[13]:
 
 
 # @title Berkeley Autolab UR5 map function
@@ -807,7 +809,7 @@ def berkeley_autolab_ur5_map_action(to_step: rlds.Step, from_step: rlds.Step):
   )
 
 
-# In[ ]:
+# In[14]:
 
 
 # @title TOTO
@@ -832,7 +834,7 @@ def toto_map_action(to_step: rlds.Step, from_step: rlds.Step):
   )
 
 
-# In[ ]:
+# In[15]:
 
 
 # @title Create trajectory datasets
@@ -990,7 +992,7 @@ DATASET_NAME_TO_TRAJECTORY_DATASET_KWARGS = {
 DATASET_NAME_TO_TRAJECTORY_DATASET = {k: get_trajectory_dataset(**v) for k, v in DATASET_NAME_TO_TRAJECTORY_DATASET_KWARGS.items()}
 
 
-# In[ ]:
+# In[16]:
 
 
 # @title Dataset weights
@@ -1011,7 +1013,7 @@ DATASET_NAME_TO_WEIGHTS = {
 }
 
 
-# In[ ]:
+# In[17]:
 
 
 # @title Batch, and sample one training sample
@@ -1047,19 +1049,19 @@ trajectory_dataset_iter = iter(dataset)
 sample = next(trajectory_dataset_iter)
 
 
-# In[ ]:
+# In[18]:
 
 
 Image.fromarray(sample[rlds.OBSERVATION]['image'].numpy()[0][-1])
 
 
-# In[ ]:
+# In[19]:
 
 
 sample[rlds.OBSERVATION]['image'].shape
 
 
-# In[ ]:
+# In[20]:
 
 
 # @title Visualize one batch of training data
@@ -1088,7 +1090,7 @@ plt.show()
 # * Add some model dependency code, which contains layers used by the RT-1 model including the FiLM layers and EfficientNet, as well as the main RT-1 flax module.
 # * Initialize random variables for the model and run a forward pass as an example.
 
-# In[ ]:
+# In[21]:
 
 
 # @title Model dependencies code
@@ -2019,7 +2021,7 @@ class TokenLearnerModuleV11(nn.Module):
     return feat
 
 
-# In[ ]:
+# In[22]:
 
 
 # @title Main RT-1 model code
@@ -2399,7 +2401,7 @@ class RT1(nn.Module):
 
 
 
-# In[ ]:
+# In[23]:
 
 
 SEQUENCE_LENGTH = 15
@@ -2482,7 +2484,7 @@ print(f"Detokenized actions: {action_detokenized}")
 # * We `jit` the functions above, and initialize the train state and place the input arrays on the available devices.
 # * Run the train loop which iterates through the batches and calls the train step.
 
-# In[ ]:
+# In[24]:
 
 
 # @title Additional data preprocessing
@@ -2590,7 +2592,7 @@ def prepare_for_model_input(
   return ds
 
 
-# In[ ]:
+# In[25]:
 
 
 # @title Set up sharding and data parallel mesh
@@ -2696,7 +2698,7 @@ print(f"Devices: {jax.devices()}")
 print(f"Sample batch keys: {sample_batch.keys()}")
 
 
-# In[ ]:
+# In[26]:
 
 
 # @title Create the train init fn, train step fn, and loss function.
@@ -2707,6 +2709,21 @@ class TrainState:
   params: Any
   opt_state: optax.OptState
   batch_stats: Any
+
+base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
+checkpoint_state_dict = checkpoints.restore_checkpoint(base_checkpoint_path, None)
+
+# Create train state based on previously saved checkpoint.
+def create_train_state_with_loaded_params(model, batch, rng, optimizer):
+
+    train_state = TrainState(
+        step=0,
+        params=checkpoint_state_dict["params"],
+        opt_state=optimizer.init(checkpoint_state_dict["params"]),
+        batch_stats=checkpoint_state_dict["batch_stats"],
+    )
+    return train_state
+
 
 
 def create_train_state(model, batch, rng, optimizer):
@@ -2779,6 +2796,8 @@ def rt1_loss(
   observation = batch["observation"]
   action = batch["action"]
 
+  print(action)
+
   bs = observation["image"].shape[0]
   seqlen = observation["image"].shape[1]
 
@@ -2832,7 +2851,7 @@ def rt1_loss(
   return -loglik, new_variables
 
 
-# In[ ]:
+# In[27]:
 
 
 # @title Set up the functions for training
@@ -2847,6 +2866,14 @@ agent_create_train_state = functools.partial(
 )
 create_train_state_jit = jax.jit(
     agent_create_train_state,
+    out_shardings=replicate_sharding,
+)
+
+agent_create_train_state_with_loaded_params = functools.partial(
+    create_train_state_with_loaded_params, model=rt1x_model, optimizer=optimizer
+)
+create_train_state_with_loaded_params_jit = jax.jit(
+    agent_create_train_state_with_loaded_params,
     out_shardings=replicate_sharding,
 )
 
@@ -2871,7 +2898,10 @@ rng = jax.random.PRNGKey(0)
 
 sample_batch = jax.tree_map(_form_gda, sample_batch, global_data_shape)
 rng, agent_rng = jax.random.split(rng)
-state = create_train_state_jit(
+# state = create_train_state_jit(
+#     batch=sample_batch, rng=agent_rng
+# )
+state = create_train_state_with_loaded_params_jit(
     batch=sample_batch, rng=agent_rng
 )
 
@@ -2883,7 +2913,7 @@ jitted_train_step = jax.jit(
 )
 
 
-# In[ ]:
+# In[28]:
 
 
 # @title Run the train loop
@@ -2913,6 +2943,15 @@ for step in range(num_train_steps):
     batch = jax.tree_map(_form_gda, batch, global_data_shape)
     epoch_step += 1
   except StopIteration:
+    # Save the current state. If there are more than 10 checkpoints already saved, delete the oldest
+
+    if epoch_count > 10:
+      os.remove(f'/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_epoch{epoch_count - 10}')
+
+    checkpoint_path = f'/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_epoch{epoch_count}'
+    checkpoints.save_checkpoint(ckpt_dir=checkpoint_path, target=state_repl, step=step, overwrite=True)
+    print(f"Saved checkpoint after epoch {epoch_count}.")
+
     train_iter = get_new_iterator()
     epoch_count += 1
     epoch_step = 1
@@ -2926,12 +2965,6 @@ for step in range(num_train_steps):
   if step % log_loss_every_steps == 0 or is_last_step:
     metrics_update = jax.device_get(metrics_update)
     print(f"Metrics: step={step} ({epoch_step}), epoch={epoch_count} {metrics_update}")
-
-  if step % 10_000 == 0:
-    # Save the current state.
-    checkpoint_path = f'/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_step{step}'
-    checkpoints.save_checkpoint(ckpt_dir=checkpoint_path, target=state_repl, step=step, overwrite=True)
-    print(f"Saved checkpoint at step {step}")
 
 # Save the final trained state
 checkpoint_path = '/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_final'
