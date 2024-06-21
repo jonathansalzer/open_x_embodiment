@@ -47,6 +47,7 @@ import matplotlib.pyplot as plt
 from flax.training import checkpoints
 
 import os
+import shutil
 
 
 # # Data Pipeline
@@ -2710,7 +2711,8 @@ class TrainState:
   opt_state: optax.OptState
   batch_stats: Any
 
-base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
+# base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
+base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_epoch10"
 checkpoint_state_dict = checkpoints.restore_checkpoint(base_checkpoint_path, None)
 
 # Create train state based on previously saved checkpoint.
@@ -2920,7 +2922,7 @@ jitted_train_step = jax.jit(
 
 num_train_steps = 1_000_000  # 1k for example, actual should be > 1M
 log_loss_every_steps = 10
-epoch_count = 1
+epoch_count = 10
 epoch_step = 1
 
 
@@ -2946,7 +2948,7 @@ for step in range(num_train_steps):
     # Save the current state. If there are more than 10 checkpoints already saved, delete the oldest
 
     if epoch_count > 10:
-      os.remove(f'/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_epoch{epoch_count - 10}')
+      shutil.rmtree(f'/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_epoch{epoch_count - 10}', ignore_errors=True)
 
     checkpoint_path = f'/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_epoch{epoch_count}'
     checkpoints.save_checkpoint(ckpt_dir=checkpoint_path, target=state_repl, step=step, overwrite=True)
