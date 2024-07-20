@@ -4,3 +4,5 @@ rt_1_x_jax/
 imgs/
 colabs/rt_1_x_tf_trained_for_002272480_step.zip
 colabs/rt_1_x_tf_trained_for_002272480_step/
+custom_rt1x_checkpoint_*
+training_results/
