@@ -30,6 +30,7 @@ import reverb
 from rlds import transformations
 import tensorflow_datasets as tfds
 import tree
+import time
 
 import abc
 import dataclasses
@@ -45,9 +46,19 @@ import functools
 from typing import Callable, Sequence
 import matplotlib.pyplot as plt
 from flax.training import checkpoints
+from flax import traverse_util
 
 import os
 import shutil
+import csv
+
+tf.config.experimental.set_visible_devices([], "GPU")
+
+jax.config.update("jax_disable_jit", False)
+
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="true"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]=".95"
+# os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
 
 
 # # Data Pipeline
@@ -818,6 +829,8 @@ def berkeley_autolab_ur5_map_action(to_step: rlds.Step, from_step: rlds.Step):
 def toto_map_action(to_step: rlds.Step, from_step: rlds.Step):
   """Maps TOTO action to action expected by the model."""
 
+  print(from_step['action'].keys())
+
   # The world vector as existed in the dataset on disk ranges from -0.7 to 0.7
   # We scale by 2.0 so that the action better spans the limit of the
   # world_vector action, from -2.0 to 2.0.
@@ -836,6 +849,143 @@ def toto_map_action(to_step: rlds.Step, from_step: rlds.Step):
 
 
 # In[15]:
+
+
+# @title UMI
+
+def rescale_value(value, value_low, value_high, output_low, output_high, safety_margin=0.01):
+  """Rescale value from [value_low, value_high] to [output_low, output_high]."""
+  scaled = (value - value_low) / (value_high - value_low) * (
+      output_high - output_low
+  ) + output_low
+  return min(max(scaled, output_low + safety_margin), output_high - safety_margin)
+  
+
+# def umi_map_action(to_step: rlds.Step, from_step: rlds.Step):
+#   """Maps UMI action to action expected by the model."""
+
+#   # The world vector as existed in the dataset on disk ranges from -0.3 to 0.3
+#   # We scale by 6.0 so that the action better spans the limit of the
+#   # world_vector action, from -2.0 to 2.0.
+#   to_step['action']['world_vector'] = from_step['action']['world_vector'] * 6.0
+#   to_step['action']['terminate_episode'] = terminate_bool_to_act(
+#       from_step['action']['terminate_episode']
+#   )
+
+#   # Similarly, the rotation_delta in the dataset on disk ranges from -60.0 to
+#   # 60.0
+#   # We scale by 0.025 so that the rotation_delta almost spans the limit of
+#   # rotation_delta, from -pi/2 to pi/2.
+#   to_step['action']['rotation_delta'] = from_step['action']['rotation_delta'] * 0.025
+
+#   # scale grip from space 0.02 to 0.08, to 1 to -1, with 0.02 being 1, and 0.08 being -1
+#   to_step['action']['gripper_closedness_action'] = tf.expand_dims(
+#       
+# (
+#           from_step['action']['gripper_closedness_action'],
+#           value_low=0.02,
+#           value_high=0.08,
+#           output_low=1.0,
+#           output_high=-1.0,
+#       ),
+#       axis=0,
+#   )
+  
+#   to_step[rlds.ACTION]['terminate_episode'] = terminate_bool_to_act(
+#       from_step[rlds.ACTION]['terminate_episode']
+#   )
+
+def umi_map_action(to_step: rlds.Step, from_step: rlds.Step):
+  """Maps UMI action to action expected by the model."""
+
+  pos_x = rescale_value(
+        from_step['action']['world_vector'][0],
+        value_low=-0.5,
+        value_high=0.5,
+        output_low=-1.75,
+        output_high=1.75,
+  )
+  
+  pos_y = rescale_value(
+        from_step['action']['world_vector'][1],
+        value_low=0.2,
+        value_high=0.7,
+        output_low=-1.75,
+        output_high=1.75,
+    )
+  
+  pos_z = rescale_value(
+        from_step['action']['world_vector'][2],
+        value_low=0.2,
+        value_high=0.7,
+        output_low=-1.75,
+        output_high=1.75,
+    )
+  
+  to_step['action']['world_vector'] = from_step['action']['world_vector']
+  
+  rot_x = rescale_value(
+        from_step['action']['rotation_delta'][0],
+        value_low=45,
+        value_high=135,
+        output_low=-1.4,
+        output_high=1.4,
+    )
+  
+  rot_y = rescale_value(
+        from_step['action']['rotation_delta'][1],
+        value_low=0,
+        value_high=90,
+        output_low=-1.4,
+        output_high=1.4,
+    )
+  
+  rot_z = rescale_value(
+        from_step['action']['rotation_delta'][2],
+        value_low=0,
+        value_high=90,
+        output_low=-1.4,
+        output_high=1.4,
+    )
+  
+  to_step['action']['rotation_delta'] = [rot_x, rot_y, rot_z]
+  
+  to_step['action']['gripper_closedness_action'] = tf.expand_dims(
+      rescale_value(
+          from_step['action']['gripper_closedness_action'],
+          value_low=0.02,
+          value_high=0.08,
+          output_low=1.0,
+          output_high=-1.0,
+      ),
+      axis=0,
+  )
+  
+  to_step[rlds.ACTION]['terminate_episode'] = terminate_bool_to_act(
+      from_step[rlds.ACTION]['terminate_episode']
+  )
+
+  print("PRINTING RESCALED ACTION...")
+  print(to_step['action']['world_vector'][0])
+  
+    
+
+
+# In[16]:
+
+
+def rescale_value(value, value_low, value_high, output_low, output_high):
+  """Rescale value from [value_low, value_high] to [output_low, output_high]."""
+  return (value - value_low) / (value_high - value_low) * (
+      output_high - output_low
+  ) + output_low
+
+test = rescale_value(0.3, -0.5, 0.5, -1.75, 1.75)
+
+print(test)
+
+
+# In[17]:
 
 
 # @title Create trajectory datasets
@@ -907,117 +1057,140 @@ def step_map_fn(step, map_observation: StepFnMapType, map_action: StepFnMapType)
 
 DATASET_NAME_TO_TRAJECTORY_DATASET_KWARGS = {
     # RT-1
-    'rt_1': {
-        'builder_dir': 'gs://gresearch/robotics/fractal20220817_data/0.1.0',
+    # 'rt_1': {
+    #     'builder_dir': 'gs://gresearch/robotics/fractal20220817_data/0.1.0',
+    #     'trajectory_length': 15,
+    #     'step_map_fn':functools.partial(step_map_fn,
+    #                                     map_observation=map_observation,
+    #                                     map_action=rt_1_map_action)
+    # },
+    # # TODO: (add Qt-Opt)
+    # # Bridge
+    # 'bridge': {
+    #     'builder_dir': 'gs://gresearch/robotics/bridge/0.1.0',
+    #     'trajectory_length': 15,
+    #     'step_map_fn':functools.partial(step_map_fn,
+    #                                     map_observation=map_observation,
+    #                                     map_action=bridge_map_action)
+    # },
+    # #  Task Agnostic Robot Play
+    # 'taco_play': {
+    #     'builder_dir': 'gs://gresearch/robotics/taco_play/0.1.0',
+    #     'trajectory_length': 15,
+    #     'step_map_fn':functools.partial(step_map_fn,
+    #                                     map_observation=taco_play_map_observation,
+    #                                     map_action=taco_play_map_action)
+    # },
+    # # Jaco Play
+    # 'jaco_play': {
+    #     'builder_dir': 'gs://gresearch/robotics/jaco_play/0.1.0',
+    #     'trajectory_length': 15,
+    #     'step_map_fn':functools.partial(step_map_fn,
+    #                                     map_observation=map_observation,
+    #                                     map_action=jaco_play_map_action)
+    # },
+    # # Cable Routing
+    # 'berkeley_cable_routing': {
+    #     'builder_dir': 'gs://gresearch/robotics/berkeley_cable_routing/0.1.0',
+    #     'trajectory_length': 15,
+    #     'step_map_fn':functools.partial(step_map_fn,
+    #                                     map_observation=map_observation,
+    #                                     map_action=berkeley_cable_routing_map_action)
+    # },
+    # # Roboturk
+    # 'roboturk': {
+    #     'builder_dir': 'gs://gresearch/robotics/roboturk/0.1.0',
+    #     'trajectory_length': 15,
+    #     'step_map_fn':functools.partial(step_map_fn,
+    #                                     map_observation=roboturk_map_observation,
+    #                                     map_action=roboturk_map_action)
+    # },
+    # # NYU VINN
+    # 'nyu_door_opening_surprising_effectiveness': {
+    #     'builder_dir': 'gs://gresearch/robotics/nyu_door_opening_surprising_effectiveness/0.1.0',
+    #     'trajectory_length': 15,
+    #     'step_map_fn':functools.partial(step_map_fn,
+    #                                     map_observation=map_observation,
+    #                                     map_action=nyu_door_opening_surprising_effectiveness_map_action)
+    # },
+    # # Austin VIOLA
+    # 'viola': {
+    #     'builder_dir': 'gs://gresearch/robotics/viola/0.1.0',
+    #     'trajectory_length': 15,
+    #     'step_map_fn':functools.partial(step_map_fn,
+    #                                     map_observation=viola_map_observation,
+    #                                     map_action=viola_map_action)
+    # },
+    # # Berkeley Autolab UR5
+    # 'berkeley_autolab_ur5': {
+    #     'builder_dir': 'gs://gresearch/robotics/berkeley_autolab_ur5/0.1.0',
+    #     'trajectory_length': 15,
+    #     'step_map_fn':functools.partial(step_map_fn,
+    #                                     map_observation=map_observation,
+    #                                     map_action=berkeley_autolab_ur5_map_action)
+    # },
+    # # TODO: (add Language Table)
+    # 'toto': {
+    #     'builder_dir': 'gs://gresearch/robotics/toto/0.1.0',
+    #     'trajectory_length': 15,
+    #     'step_map_fn':functools.partial(step_map_fn,
+    #                                     map_observation=map_observation,
+    #                                     map_action=toto_map_action)
+    # },
+    'umi': {
+        'builder_dir': '~/tensorflow_datasets/episodes/1.0.0',
         'trajectory_length': 15,
         'step_map_fn':functools.partial(step_map_fn,
                                         map_observation=map_observation,
-                                        map_action=rt_1_map_action)
+                                        map_action=umi_map_action)
     },
-    # TODO: (add Qt-Opt)
-    # Bridge
-    'bridge': {
-        'builder_dir': 'gs://gresearch/robotics/bridge/0.1.0',
-        'trajectory_length': 15,
-        'step_map_fn':functools.partial(step_map_fn,
-                                        map_observation=map_observation,
-                                        map_action=bridge_map_action)
-    },
-    #  Task Agnostic Robot Play
-    'taco_play': {
-        'builder_dir': 'gs://gresearch/robotics/taco_play/0.1.0',
-        'trajectory_length': 15,
-        'step_map_fn':functools.partial(step_map_fn,
-                                        map_observation=taco_play_map_observation,
-                                        map_action=taco_play_map_action)
-    },
-    # Jaco Play
-    'jaco_play': {
-        'builder_dir': 'gs://gresearch/robotics/jaco_play/0.1.0',
-        'trajectory_length': 15,
-        'step_map_fn':functools.partial(step_map_fn,
-                                        map_observation=map_observation,
-                                        map_action=jaco_play_map_action)
-    },
-    # Cable Routing
-    'berkeley_cable_routing': {
-        'builder_dir': 'gs://gresearch/robotics/berkeley_cable_routing/0.1.0',
-        'trajectory_length': 15,
-        'step_map_fn':functools.partial(step_map_fn,
-                                        map_observation=map_observation,
-                                        map_action=berkeley_cable_routing_map_action)
-    },
-    # Roboturk
-    'roboturk': {
-        'builder_dir': 'gs://gresearch/robotics/roboturk/0.1.0',
-        'trajectory_length': 15,
-        'step_map_fn':functools.partial(step_map_fn,
-                                        map_observation=roboturk_map_observation,
-                                        map_action=roboturk_map_action)
-    },
-    # NYU VINN
-    'nyu_door_opening_surprising_effectiveness': {
-        'builder_dir': 'gs://gresearch/robotics/nyu_door_opening_surprising_effectiveness/0.1.0',
-        'trajectory_length': 15,
-        'step_map_fn':functools.partial(step_map_fn,
-                                        map_observation=map_observation,
-                                        map_action=nyu_door_opening_surprising_effectiveness_map_action)
-    },
-    # Austin VIOLA
-    'viola': {
-        'builder_dir': 'gs://gresearch/robotics/viola/0.1.0',
-        'trajectory_length': 15,
-        'step_map_fn':functools.partial(step_map_fn,
-                                        map_observation=viola_map_observation,
-                                        map_action=viola_map_action)
-    },
-    # Berkeley Autolab UR5
-    'berkeley_autolab_ur5': {
-        'builder_dir': 'gs://gresearch/robotics/berkeley_autolab_ur5/0.1.0',
-        'trajectory_length': 15,
-        'step_map_fn':functools.partial(step_map_fn,
-                                        map_observation=map_observation,
-                                        map_action=berkeley_autolab_ur5_map_action)
-    },
-    # TODO: (add Language Table)
-    'toto': {
-        'builder_dir': 'gs://gresearch/robotics/toto/0.1.0',
-        'trajectory_length': 15,
-        'step_map_fn':functools.partial(step_map_fn,
-                                        map_observation=map_observation,
-                                        map_action=toto_map_action)
-    }
 }
 
 
 DATASET_NAME_TO_TRAJECTORY_DATASET = {k: get_trajectory_dataset(**v) for k, v in DATASET_NAME_TO_TRAJECTORY_DATASET_KWARGS.items()}
 
 
-# In[16]:
+# In[18]:
 
 
 # @title Dataset weights
 
+# DATASET_NAME_TO_WEIGHTS = {
+#     'rt_1': 150,
+#     # 'rlds.kuka': 20,
+#     'bridge': 50,
+#     'taco_play': 5,
+#     'jaco_play': 20,
+#     'berkeley_cable_routing': 20,
+#     'roboturk': 10,
+#     'nyu_door_opening_surprising_effectiveness': 5,
+#     'viola': 3,
+#     'berkeley_autolab_ur5': 5,
+#     # 'language_table.language_table': 30,
+#     'toto': 5,
+# }
+
 DATASET_NAME_TO_WEIGHTS = {
-    'rt_1': 150,
-    # 'rlds.kuka': 20,
-    'bridge': 50,
-    'taco_play': 5,
-    'jaco_play': 20,
-    'berkeley_cable_routing': 20,
-    'roboturk': 10,
-    'nyu_door_opening_surprising_effectiveness': 5,
-    'viola': 3,
-    'berkeley_autolab_ur5': 5,
-    # 'language_table.language_table': 30,
-    'toto': 5,
+    # 'rt_1': 0,
+    # # 'rlds.kuka': 0,
+    # 'bridge': 0,
+    # 'taco_play': 0,
+    # 'jaco_play': 0,
+    # 'berkeley_cable_routing': 0,
+    # 'roboturk': 0,
+    # 'nyu_door_opening_surprising_effectiveness': 0,
+    # 'viola': 0,
+    # 'berkeley_autolab_ur5': 0,
+    # # 'language_table.language_table': 0,
+    # 'toto': 0,
+    'umi': 1,
 }
 
 
-# In[17]:
+# In[19]:
 
 
-# @title Batch, and sample one training sample
+# # @title Batch, and sample one training sample
 
 BATCH_SIZE = 6
 
@@ -1028,60 +1201,67 @@ weights = []
 for name, dataset in DATASET_NAME_TO_TRAJECTORY_DATASET.items():
 
   # print number of episodes in each dataset
-  # print(f"Number of episodes in {name} dataset: {len(list(dataset))}")
+#   print(f"Number of episodes in {name} dataset: {len(list(dataset))}")
+#   for i in dataset:
+#     print(i.keys())
 
-  datasets.append(dataset.shuffle(10))
+  datasets.append(dataset.shuffle(10000))
   weights.append(float(DATASET_NAME_TO_WEIGHTS[name]))
 
-dataset = tf.data.Dataset.sample_from_datasets(datasets, weights=weights)
+# dataset = tf.data.Dataset.sample_from_datasets(datasets, weights=weights)
 
-# Larger shuffle buffer leads to better performance, but consumes more RAM
-dataset = dataset.shuffle(1)
+# size = 0
+# for i in dataset:
+#   size += 1
+# print(size)
 
-dataset = dataset.batch(BATCH_SIZE)
+# # Larger shuffle buffer leads to better performance, but consumes more RAM
+# dataset = dataset.shuffle(1)
 
-# print(dataset.reduce(0, lambda x,_: x+1).numpy())
+# dataset = dataset.batch(BATCH_SIZE)
 
-trajectory_dataset_iter = iter(dataset)
+# # print(dataset.reduce(0, lambda x,_: x+1).numpy())
 
-# get length of iter
-# print(sum(1 for _ in trajectory_dataset_iter))
+# trajectory_dataset_iter = iter(dataset)
 
-sample = next(trajectory_dataset_iter)
+# # get length of iter
+# # print(sum(1 for _ in trajectory_dataset_iter))
 
-
-# In[18]:
-
-
-Image.fromarray(sample[rlds.OBSERVATION]['image'].numpy()[0][-1])
-
-
-# In[19]:
-
-
-sample[rlds.OBSERVATION]['image'].shape
+# sample = next(trajectory_dataset_iter)
 
 
 # In[20]:
 
 
+# Image.fromarray(sample[rlds.OBSERVATION]['image'].numpy()[0][-1])
+
+
+# In[21]:
+
+
+# sample[rlds.OBSERVATION]['image'].shape
+
+
+# In[22]:
+
+
 # @title Visualize one batch of training data
 
-batch_size = sample[rlds.OBSERVATION]['image'].shape[0]
-trajectory_length = sample[rlds.OBSERVATION]['image'].shape[1]
+# batch_size = sample[rlds.OBSERVATION]['image'].shape[0]
+# trajectory_length = sample[rlds.OBSERVATION]['image'].shape[1]
 
-fig, axs = plt.subplots(nrows=batch_size,
-                        ncols=trajectory_length,
-                        figsize=(30, 10))
+# fig, axs = plt.subplots(nrows=batch_size,
+#                         ncols=trajectory_length,
+#                         figsize=(30, 10))
 
-for batch_index in range(batch_size):
-  for trajectory_index in range(trajectory_length):
-    print(rlds.OBSERVATION)
-    axs[batch_index, trajectory_index].imshow(
-        sample[rlds.OBSERVATION]['image'][batch_index, trajectory_index])
-    axs[batch_index, trajectory_index].axis('off')
+# for batch_index in range(batch_size):
+#   for trajectory_index in range(trajectory_length):
+#     print(rlds.OBSERVATION)
+#     axs[batch_index, trajectory_index].imshow(
+#         sample[rlds.OBSERVATION]['image'][batch_index, trajectory_index])
+#     axs[batch_index, trajectory_index].axis('off')
 
-plt.show()
+# plt.show()
 
 
 # # RT-1 Model Code
@@ -1091,7 +1271,7 @@ plt.show()
 # * Add some model dependency code, which contains layers used by the RT-1 model including the FiLM layers and EfficientNet, as well as the main RT-1 flax module.
 # * Initialize random variables for the model and run a forward pass as an example.
 
-# In[21]:
+# In[23]:
 
 
 # @title Model dependencies code
@@ -2022,7 +2202,7 @@ class TokenLearnerModuleV11(nn.Module):
     return feat
 
 
-# In[22]:
+# In[24]:
 
 
 # @title Main RT-1 model code
@@ -2402,7 +2582,7 @@ class RT1(nn.Module):
 
 
 
-# In[23]:
+# In[25]:
 
 
 SEQUENCE_LENGTH = 15
@@ -2485,7 +2665,7 @@ print(f"Detokenized actions: {action_detokenized}")
 # * We `jit` the functions above, and initialize the train state and place the input arrays on the available devices.
 # * Run the train loop which iterates through the batches and calls the train step.
 
-# In[24]:
+# In[ ]:
 
 
 # @title Additional data preprocessing
@@ -2593,15 +2773,14 @@ def prepare_for_model_input(
   return ds
 
 
-# In[25]:
+# In[ ]:
 
 
 # @title Set up sharding and data parallel mesh
 
 # Actual global batch size is 1024. Use a smaller batch size for this colab
 # example.
-# TODO: Set this to actual batch size.
-PER_DEVICE_BATCH_SIZE = 2
+PER_DEVICE_BATCH_SIZE = 5
 
 def reshard(tree, shardings):
   """Take an arbitrarily sharded pytree and shard it according to `shardings`.
@@ -2663,6 +2842,12 @@ P = jax.sharding.PartitionSpec
 # TODO: Replace this with an UMI dataset.
 train_dataset = tf.data.Dataset.sample_from_datasets(datasets, weights=weights)
 
+# print first 5 elements of the dataset
+# for i, element in enumerate(train_dataset):
+#   if i >= 3:
+#     break
+  # print(element['action']['world_vector'])
+
 train_dataset = prepare_for_model_input(
     train_dataset, target_height=300, target_width=300, training=True
 )
@@ -2679,17 +2864,34 @@ replicate_sharding = NamedSharding(mesh, P())
 
 global_batch_size = jax.device_count() * PER_DEVICE_BATCH_SIZE
 local_batch_size = jax.local_device_count() * PER_DEVICE_BATCH_SIZE
-train_dataset = train_dataset.batch(local_batch_size, drop_remainder=True)
+
+# size = 0
+# for i in train_dataset:
+#   size += 1
+# print(f"Dataset size: {size}")
+
+
+# train_iter = train_dataset.repeat().shuffle(300).batch(local_batch_size, drop_remainder=True).prefetch(tf.data.AUTOTUNE).as_numpy_iterator()
+
+train_dataset = train_dataset.shuffle(100).repeat().batch(local_batch_size, drop_remainder=True)
 
 train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
 
 train_iter = train_dataset.as_numpy_iterator()
+
 sample_batch = jax.tree_map(lambda x: x, next(train_iter))
+
+print(len(sample_batch['is_first']))
+
+# size = 0
+# for i in train_dataset:
+#   size += 1
+# print(f"Dataset size: {size}")
 
 # shuffle and get new iterator for next epoch
 def get_new_iterator():
   print("Shuffling dataset and getting new iterator.")
-  shuffled_train_dataset = train_dataset.shuffle(10)
+  shuffled_train_dataset = train_dataset.shuffle(1000)
   shuffled_train_iter = shuffled_train_dataset.as_numpy_iterator()
   return shuffled_train_iter
 
@@ -2699,7 +2901,7 @@ print(f"Devices: {jax.devices()}")
 print(f"Sample batch keys: {sample_batch.keys()}")
 
 
-# In[26]:
+# In[ ]:
 
 
 # @title Create the train init fn, train step fn, and loss function.
@@ -2711,8 +2913,8 @@ class TrainState:
   opt_state: optax.OptState
   batch_stats: Any
 
-# base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
-base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_epoch10"
+base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
+# base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/train_1721474164_lr_42_eps_1e-07/custom_rt1x_checkpoint_step_7000_epoch185_loss5.850278466823511e-05"
 checkpoint_state_dict = checkpoints.restore_checkpoint(base_checkpoint_path, None)
 
 # Create train state based on previously saved checkpoint.
@@ -2852,13 +3054,37 @@ def rt1_loss(
 
   return -loglik, new_variables
 
+# print(checkpoint_state_dict["params"]["Transformer_0"].keys())
 
-# In[27]:
+
+# In[ ]:
 
 
 # @title Set up the functions for training
 
-optimizer = optax.adam(learning_rate=1e-4, eps=1e-7)
+UMI_LEARNING_RATE = 1e-6
+UMI_EPSILON = 1e-7
+
+# LEARNING RATE FROM OCTO
+octo_learning_rate = optax.join_schedules(
+    [optax.linear_schedule(0, 3e-5, 100), optax.constant_schedule(3e-5)], [100]
+)
+
+optimizer = optax.adam(learning_rate=UMI_LEARNING_RATE, eps=UMI_EPSILON)
+
+# FREEZE SOME LAYERS
+partition_optimizers = {'trainable': optimizer, 'frozen': optax.set_to_zero()}
+
+param_partitions = traverse_util.path_aware_map(
+  lambda path, v: 'frozen' if ('TransformerBlock_0' in path or 'TransformerBlock_1' in path or 'TransformerBlock_2' in path or 'TransformerBlock_3' in path or 'TransformerBlock_4' in path or 'TransformerBlock_5' in path or 'TransformerBlock_6' in path) else 'trainable', checkpoint_state_dict["params"])
+tx = optax.multi_transform(partition_optimizers, param_partitions)
+
+tx = optimizer
+
+# visualize a subset of the param_partitions structure
+flat = list(traverse_util.flatten_dict(param_partitions).items())
+# print(traverse_util.unflatten_dict(dict(flat[:3] + flat[-3:])))
+print(flat)
 
 # Create the train state.
 # input: batch, rng, ds_info
@@ -2872,7 +3098,7 @@ create_train_state_jit = jax.jit(
 )
 
 agent_create_train_state_with_loaded_params = functools.partial(
-    create_train_state_with_loaded_params, model=rt1x_model, optimizer=optimizer
+    create_train_state_with_loaded_params, model=rt1x_model, optimizer=tx
 )
 create_train_state_with_loaded_params_jit = jax.jit(
     agent_create_train_state_with_loaded_params,
@@ -2900,6 +3126,9 @@ rng = jax.random.PRNGKey(0)
 
 sample_batch = jax.tree_map(_form_gda, sample_batch, global_data_shape)
 rng, agent_rng = jax.random.split(rng)
+
+# CHANGE HERE FOR CHECKPOINT
+
 # state = create_train_state_jit(
 #     batch=sample_batch, rng=agent_rng
 # )
@@ -2908,22 +3137,34 @@ state = create_train_state_with_loaded_params_jit(
 )
 
 # Create the train step.
-agent_train = functools.partial(train, model=rt1x_model, optimizer=optimizer)
+agent_train = functools.partial(train, model=rt1x_model, optimizer=tx)
 jitted_train_step = jax.jit(
     agent_train,
     out_shardings=(replicate_sharding, replicate_sharding),
 )
 
 
-# In[28]:
+# In[ ]:
 
 
 # @title Run the train loop
 
 num_train_steps = 1_000_000  # 1k for example, actual should be > 1M
 log_loss_every_steps = 10
-epoch_count = 10
+epoch_count = 1
 epoch_step = 1
+
+timestr = str(int(time.time()))
+dirname = f"/home/jonathan/Thesis/open_x_embodiment/training_results/train_{timestr}_lr_{UMI_LEARNING_RATE}_eps_{UMI_EPSILON}"
+
+# make directory for loss log
+os.makedirs(dirname, exist_ok=True)
+
+loss_log_csv = f"{dirname}/loss_log.csv"
+
+# Write the header to the csv file
+with open(loss_log_csv, mode='w') as loss_log_file:
+  loss_log_file.write("step,epoch,loss\n")
 
 
 # The state should be resharded since we may have loaded pretrained weights
@@ -2932,27 +3173,32 @@ state_repl = reshard(state, shardings=replicate_sharding)
 # The RNG must be replicated.
 rng_repl = reshard(rng, shardings=replicate_sharding)
 
-train_iter = get_new_iterator()
+# train_iter = get_new_iterator()
+
+save_checkpoint_path = dirname
+
+currloss = 0.0
 
 for step in range(num_train_steps):
   is_last_step = step == num_train_steps
 
   rng_repl = jax.random.fold_in(rng_repl, step)
 
+
   # check if there is next in train_iter
   try:
-    batch = next(train_iter)
+    # batch = next(train_iter)
+    batch = jax.tree_map(lambda x: x, next(train_iter))
     batch = jax.tree_map(_form_gda, batch, global_data_shape)
     epoch_step += 1
   except StopIteration:
     # Save the current state. If there are more than 10 checkpoints already saved, delete the oldest
 
-    if epoch_count > 10:
-      shutil.rmtree(f'/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_epoch{epoch_count - 10}', ignore_errors=True)
+    # if epoch_count > 10:
+    #   shutil.rmtree(f'{save_checkpoint_path}/custom_rt1x_checkpoint_epoch{epoch_count - 10}', ignore_errors=True)
 
-    checkpoint_path = f'/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_epoch{epoch_count}'
-    checkpoints.save_checkpoint(ckpt_dir=checkpoint_path, target=state_repl, step=step, overwrite=True)
-    print(f"Saved checkpoint after epoch {epoch_count}.")
+    if step >= 50_000:
+      break
 
     train_iter = get_new_iterator()
     epoch_count += 1
@@ -2960,15 +3206,28 @@ for step in range(num_train_steps):
     batch = next(train_iter)
     batch = jax.tree_map(_form_gda, batch, global_data_shape)
 
+  if step % 500 == 0:
+
+    checkpoint_path = f'{save_checkpoint_path}/custom_rt1x_checkpoint_step_{step}_epoch{epoch_count}_loss{currloss}'
+    checkpoints.save_checkpoint(ckpt_dir=checkpoint_path, target=state_repl, step=step, overwrite=True)
+    print(f"Saved checkpoint after epoch {epoch_count}.")
+
   state_repl, metrics_update = jitted_train_step(
       state=state_repl, batch=batch, rng=rng_repl
   )
+
+  currloss = jax.device_get(metrics_update)["loss"]
+
+  if step % 500 == 0:
+    # with open(loss_log_csv, mode='a') as loss_log_file:
+    #     loss_log_file.write(f"{step},{epoch_count},{currloss}\n")
+    with open(loss_log_csv, mode='a', newline='') as loss_log_file:
+        writer = csv.writer(loss_log_file)
+        writer.writerow([step, epoch_count, currloss])
 
   if step % log_loss_every_steps == 0 or is_last_step:
     metrics_update = jax.device_get(metrics_update)
     print(f"Metrics: step={step} ({epoch_step}), epoch={epoch_count} {metrics_update}")
 
-# Save the final trained state
-checkpoint_path = '/home/jonathan/Thesis/open_x_embodiment/custom_rt1x_checkpoint_final'
-checkpoints.save_checkpoint(ckpt_dir=checkpoint_path, target=state_repl, step=num_train_steps, overwrite=True)
 
+# 
