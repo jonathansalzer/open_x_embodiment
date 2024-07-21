@@ -51,6 +51,7 @@ from flax import traverse_util
 import os
 import shutil
 import csv
+import gc
 
 tf.config.experimental.set_visible_devices([], "GPU")
 
@@ -1005,10 +1006,13 @@ def pad_initial_zero_episode(episode: tf.data.Dataset, num_zero_step: int) -> tf
   return episode
 
 
-def get_trajectory_dataset(builder_dir: str, step_map_fn, trajectory_length: int, split='train[:10]'):
+def get_trajectory_dataset(builder_dir: str, step_map_fn, trajectory_length: int, split='train'):
   dataset_builder = tfds.builder_from_directory(builder_dir=builder_dir)
 
-  dataset_builder_episodic_dataset = dataset_builder.as_dataset(split=split)
+  dataset_builder_episodic_dataset = dataset_builder.as_dataset(split=split, read_config=tfds.ReadConfig(
+    override_buffer_size=1024,  # Save quite a bit of RAM.
+  ),
+)
 
   # We need pad_initial_zero_episode because reverb.PatternDataset will skip
   # constructing trajectories where the first trajectory_length - 1 steps are
@@ -2665,7 +2669,7 @@ print(f"Detokenized actions: {action_detokenized}")
 # * We `jit` the functions above, and initialize the train state and place the input arrays on the available devices.
 # * Run the train loop which iterates through the batches and calls the train step.
 
-# In[ ]:
+# In[26]:
 
 
 # @title Additional data preprocessing
@@ -2773,7 +2777,7 @@ def prepare_for_model_input(
   return ds
 
 
-# In[ ]:
+# In[27]:
 
 
 # @title Set up sharding and data parallel mesh
@@ -2839,8 +2843,17 @@ def tree_broadcast(prefix, target):
 NamedSharding = jax.sharding.NamedSharding
 P = jax.sharding.PartitionSpec
 
+options = tf.data.Options()
+
+# Stop magic stuff that eats up RAM:
+options.autotune.enabled = False
+options.experimental_distribute.auto_shard_policy = (
+  tf.data.experimental.AutoShardPolicy.OFF)
+options.experimental_optimization.inject_prefetch = False
+
+
 # TODO: Replace this with an UMI dataset.
-train_dataset = tf.data.Dataset.sample_from_datasets(datasets, weights=weights)
+train_dataset = tf.data.Dataset.sample_from_datasets(datasets, weights=weights).with_options(options)
 
 # print first 5 elements of the dataset
 # for i, element in enumerate(train_dataset):
@@ -2873,11 +2886,11 @@ local_batch_size = jax.local_device_count() * PER_DEVICE_BATCH_SIZE
 
 # train_iter = train_dataset.repeat().shuffle(300).batch(local_batch_size, drop_remainder=True).prefetch(tf.data.AUTOTUNE).as_numpy_iterator()
 
-train_dataset = train_dataset.shuffle(100).repeat().batch(local_batch_size, drop_remainder=True)
+train_dataset_repeat = train_dataset.shuffle(102).repeat().batch(local_batch_size, drop_remainder=True)
 
-train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
+# train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
 
-train_iter = train_dataset.as_numpy_iterator()
+train_iter = train_dataset_repeat.as_numpy_iterator()
 
 sample_batch = jax.tree_map(lambda x: x, next(train_iter))
 
@@ -2901,7 +2914,7 @@ print(f"Devices: {jax.devices()}")
 print(f"Sample batch keys: {sample_batch.keys()}")
 
 
-# In[ ]:
+# In[28]:
 
 
 # @title Create the train init fn, train step fn, and loss function.
@@ -2914,20 +2927,10 @@ class TrainState:
   batch_stats: Any
 
 base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
-# base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/train_1721474164_lr_42_eps_1e-07/custom_rt1x_checkpoint_step_7000_epoch185_loss5.850278466823511e-05"
+# base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/train_1721567438_lr_0.0001_eps_1e-07/checkpoint_2000"
+# base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/auto_save_and_reload"
+
 checkpoint_state_dict = checkpoints.restore_checkpoint(base_checkpoint_path, None)
-
-# Create train state based on previously saved checkpoint.
-def create_train_state_with_loaded_params(model, batch, rng, optimizer):
-
-    train_state = TrainState(
-        step=0,
-        params=checkpoint_state_dict["params"],
-        opt_state=optimizer.init(checkpoint_state_dict["params"]),
-        batch_stats=checkpoint_state_dict["batch_stats"],
-    )
-    return train_state
-
 
 
 def create_train_state(model, batch, rng, optimizer):
@@ -2952,6 +2955,21 @@ def create_train_state(model, batch, rng, optimizer):
         opt_state=optimizer.init(params),
         batch_stats=batch_stats,
     )
+    return train_state
+
+
+# Create train state based on previously saved checkpoint.
+def create_train_state_with_loaded_params(model, batch, rng, optimizer):
+
+    empty_train_state = TrainState(
+       step=0, 
+       params=checkpoint_state_dict["params"], 
+       opt_state=optimizer.init(checkpoint_state_dict["params"]), 
+       batch_stats=checkpoint_state_dict["batch_stats"]
+    )
+
+    train_state = checkpoints.restore_checkpoint(base_checkpoint_path, empty_train_state)
+
     return train_state
 
 
@@ -3056,8 +3074,10 @@ def rt1_loss(
 
 # print(checkpoint_state_dict["params"]["Transformer_0"].keys())
 
+print(checkpoint_state_dict["opt_state"])
 
-# In[ ]:
+
+# In[29]:
 
 
 # @title Set up the functions for training
@@ -3132,8 +3152,11 @@ rng, agent_rng = jax.random.split(rng)
 # state = create_train_state_jit(
 #     batch=sample_batch, rng=agent_rng
 # )
-state = create_train_state_with_loaded_params_jit(
-    batch=sample_batch, rng=agent_rng
+# state = create_train_state_with_loaded_params_jit(
+#     batch=sample_batch, rng=agent_rng
+# )
+state = create_train_state_with_loaded_params(
+    model=rt1x_model, batch=sample_batch, rng=agent_rng, optimizer=tx
 )
 
 # Create the train step.
@@ -3144,7 +3167,15 @@ jitted_train_step = jax.jit(
 )
 
 
-# In[ ]:
+# In[30]:
+
+
+def save_checkpoint(ckpt_dir, target, step):
+    checkpoints.save_checkpoint(ckpt_dir=ckpt_dir, target=target, step=step, keep_every_n_steps=1000)
+    gc.collect()
+
+
+# In[32]:
 
 
 # @title Run the train loop
@@ -3155,7 +3186,9 @@ epoch_count = 1
 epoch_step = 1
 
 timestr = str(int(time.time()))
-dirname = f"/home/jonathan/Thesis/open_x_embodiment/training_results/train_{timestr}_lr_{UMI_LEARNING_RATE}_eps_{UMI_EPSILON}"
+# dirname = f"/home/jonathan/Thesis/open_x_embodiment/training_results/train_{timestr}_lr_{UMI_LEARNING_RATE}_eps_{UMI_EPSILON}"
+dirname = f"/home/jonathan/Thesis/open_x_embodiment/training_results/auto_save_and_reload"
+
 
 # make directory for loss log
 os.makedirs(dirname, exist_ok=True)
@@ -3184,50 +3217,42 @@ for step in range(num_train_steps):
 
   rng_repl = jax.random.fold_in(rng_repl, step)
 
-
   # check if there is next in train_iter
   try:
     # batch = next(train_iter)
-    batch = jax.tree_map(lambda x: x, next(train_iter))
+    batch = next(train_iter)
     batch = jax.tree_map(_form_gda, batch, global_data_shape)
     epoch_step += 1
   except StopIteration:
-    # Save the current state. If there are more than 10 checkpoints already saved, delete the oldest
-
-    # if epoch_count > 10:
-    #   shutil.rmtree(f'{save_checkpoint_path}/custom_rt1x_checkpoint_epoch{epoch_count - 10}', ignore_errors=True)
-
-    if step >= 50_000:
-      break
-
-    train_iter = get_new_iterator()
-    epoch_count += 1
-    epoch_step = 1
-    batch = next(train_iter)
-    batch = jax.tree_map(_form_gda, batch, global_data_shape)
-
-  if step % 500 == 0:
-
-    checkpoint_path = f'{save_checkpoint_path}/custom_rt1x_checkpoint_step_{step}_epoch{epoch_count}_loss{currloss}'
-    checkpoints.save_checkpoint(ckpt_dir=checkpoint_path, target=state_repl, step=step, overwrite=True)
-    print(f"Saved checkpoint after epoch {epoch_count}.")
+    pass
+    # train_iter = get_new_iterator()
+    # epoch_count += 1
+    
+    # epoch_step = 1
+    # batch = next(train_iter)
+    # batch = jax.tree_map(_form_gda, batch, global_data_shape)
 
   state_repl, metrics_update = jitted_train_step(
       state=state_repl, batch=batch, rng=rng_repl
   )
 
+  global_step = state_repl.step
+
   currloss = jax.device_get(metrics_update)["loss"]
 
-  if step % 500 == 0:
-    # with open(loss_log_csv, mode='a') as loss_log_file:
-    #     loss_log_file.write(f"{step},{epoch_count},{currloss}\n")
+  if step % 50 == 0:
     with open(loss_log_csv, mode='a', newline='') as loss_log_file:
         writer = csv.writer(loss_log_file)
         writer.writerow([step, epoch_count, currloss])
 
+  if step % 1000 == 0:
+    # Save the current state.
+    save_checkpoint(ckpt_dir=save_checkpoint_path, target=state_repl, step=global_step)
+    print(f"Saved checkpoint after epoch {epoch_count}.")
+
   if step % log_loss_every_steps == 0 or is_last_step:
     metrics_update = jax.device_get(metrics_update)
-    print(f"Metrics: step={step} ({epoch_step}), epoch={epoch_count} {metrics_update}")
+    print(f"Metrics: step={step} ({global_step}), {metrics_update}")
 
 
 # 
