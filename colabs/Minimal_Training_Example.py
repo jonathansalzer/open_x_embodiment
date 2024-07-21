@@ -2926,9 +2926,9 @@ class TrainState:
   opt_state: optax.OptState
   batch_stats: Any
 
-base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
+# base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
 # base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/train_1721567438_lr_0.0001_eps_1e-07/checkpoint_2000"
-# base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/auto_save_and_reload"
+base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/auto_save_and_reload"
 
 checkpoint_state_dict = checkpoints.restore_checkpoint(base_checkpoint_path, None)
 
@@ -3190,14 +3190,14 @@ timestr = str(int(time.time()))
 dirname = f"/home/jonathan/Thesis/open_x_embodiment/training_results/auto_save_and_reload"
 
 
-# make directory for loss log
-os.makedirs(dirname, exist_ok=True)
+# # make directory for loss log
+# os.makedirs(dirname, exist_ok=True)
 
 loss_log_csv = f"{dirname}/loss_log.csv"
 
-# Write the header to the csv file
-with open(loss_log_csv, mode='w') as loss_log_file:
-  loss_log_file.write("step,epoch,loss\n")
+# # Write the header to the csv file
+# with open(loss_log_csv, mode='w') as loss_log_file:
+#   loss_log_file.write("step,epoch,loss\n")
 
 
 # The state should be resharded since we may have loaded pretrained weights
