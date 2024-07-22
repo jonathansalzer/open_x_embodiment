@@ -2926,9 +2926,9 @@ class TrainState:
   opt_state: optax.OptState
   batch_stats: Any
 
-base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
+# base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
 # base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/train_1721567438_lr_0.0001_eps_1e-07/checkpoint_2000"
-# base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/auto_save_and_reload"
+base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/auto_save_and_reload"
 
 checkpoint_state_dict = checkpoints.restore_checkpoint(base_checkpoint_path, None)
 
@@ -3082,7 +3082,7 @@ print(checkpoint_state_dict["opt_state"])
 
 # @title Set up the functions for training
 
-UMI_LEARNING_RATE = 1e-4
+UMI_LEARNING_RATE = 3e-5
 UMI_EPSILON = 1e-7
 
 # LEARNING RATE FROM OCTO
