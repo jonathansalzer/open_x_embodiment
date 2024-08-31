@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#ch!/usr/bin/env python
 # coding: utf-8
 
 # In[1]:
@@ -2926,9 +2926,9 @@ class TrainState:
   opt_state: optax.OptState
   batch_stats: Any
 
-# base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
+base_checkpoint_path = "/home/jonathan/Thesis/ROS2_RT-1-X/ros2_ws/src/ros2_rt_1_x/ros2_rt_1_x/checkpoints/rt_1_x_jax"
 # base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/train_1721567438_lr_0.0001_eps_1e-07/checkpoint_2000"
-base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/auto_save_and_reload"
+#base_checkpoint_path = "/home/jonathan/Thesis/open_x_embodiment/training_results/fasta_optimize_save_and_reload"
 
 checkpoint_state_dict = checkpoints.restore_checkpoint(base_checkpoint_path, None)
 
@@ -3018,7 +3018,7 @@ def rt1_loss(
   observation = batch["observation"]
   action = batch["action"]
 
-  print(action)
+  # print(action)
 
   bs = observation["image"].shape[0]
   seqlen = observation["image"].shape[1]
@@ -3074,7 +3074,7 @@ def rt1_loss(
 
 # print(checkpoint_state_dict["params"]["Transformer_0"].keys())
 
-print(checkpoint_state_dict["opt_state"])
+# print(checkpoint_state_dict["opt_state"])
 
 
 # In[29]:
@@ -3082,7 +3082,7 @@ print(checkpoint_state_dict["opt_state"])
 
 # @title Set up the functions for training
 
-UMI_LEARNING_RATE = 3e-5
+UMI_LEARNING_RATE = 5e-5
 UMI_EPSILON = 1e-7
 
 # LEARNING RATE FROM OCTO
@@ -3104,7 +3104,7 @@ tx = optimizer
 # visualize a subset of the param_partitions structure
 flat = list(traverse_util.flatten_dict(param_partitions).items())
 # print(traverse_util.unflatten_dict(dict(flat[:3] + flat[-3:])))
-print(flat)
+# print(flat)
 
 # Create the train state.
 # input: batch, rng, ds_info
@@ -3149,14 +3149,14 @@ rng, agent_rng = jax.random.split(rng)
 
 # CHANGE HERE FOR CHECKPOINT
 
-# state = create_train_state_jit(
-#     batch=sample_batch, rng=agent_rng
-# )
+#state = create_train_state_jit(
+#    batch=sample_batch, rng=agent_rng
+#)
 # state = create_train_state_with_loaded_params_jit(
 #     batch=sample_batch, rng=agent_rng
 # )
 state = create_train_state_with_loaded_params(
-    model=rt1x_model, batch=sample_batch, rng=agent_rng, optimizer=tx
+   model=rt1x_model, batch=sample_batch, rng=agent_rng, optimizer=tx
 )
 
 # Create the train step.
@@ -3171,11 +3171,11 @@ jitted_train_step = jax.jit(
 
 
 def save_checkpoint(ckpt_dir, target, step):
-    checkpoints.save_checkpoint(ckpt_dir=ckpt_dir, target=target, step=step, keep_every_n_steps=1000)
+    checkpoints.save_checkpoint(ckpt_dir=ckpt_dir, target=target, step=step, keep_every_n_steps=2000)
     gc.collect()
 
 
-# In[32]:
+# In[31]:
 
 
 # @title Run the train loop
@@ -3187,17 +3187,17 @@ epoch_step = 1
 
 timestr = str(int(time.time()))
 # dirname = f"/home/jonathan/Thesis/open_x_embodiment/training_results/train_{timestr}_lr_{UMI_LEARNING_RATE}_eps_{UMI_EPSILON}"
-dirname = f"/home/jonathan/Thesis/open_x_embodiment/training_results/auto_save_and_reload"
+dirname = f"/home/jonathan/Thesis/open_x_embodiment/training_results/slowa_optimize_save_and_reload"
 
 
 # # make directory for loss log
-# os.makedirs(dirname, exist_ok=True)
+os.makedirs(dirname, exist_ok=True)
 
 loss_log_csv = f"{dirname}/loss_log.csv"
 
 # # Write the header to the csv file
-# with open(loss_log_csv, mode='w') as loss_log_file:
-#   loss_log_file.write("step,epoch,loss\n")
+with open(loss_log_csv, mode='w') as loss_log_file:
+  loss_log_file.write("step,epoch,loss\n")
 
 
 # The state should be resharded since we may have loaded pretrained weights
@@ -3240,12 +3240,12 @@ for step in range(num_train_steps):
 
   currloss = jax.device_get(metrics_update)["loss"]
 
-  if step % 50 == 0:
+  if step % 100 == 0:
     with open(loss_log_csv, mode='a', newline='') as loss_log_file:
         writer = csv.writer(loss_log_file)
-        writer.writerow([step, epoch_count, currloss])
+        writer.writerow([step, global_step, currloss])
 
-  if step % 1000 == 0:
+  if step % 5000 == 0 and step != 0:
     # Save the current state.
     save_checkpoint(ckpt_dir=save_checkpoint_path, target=state_repl, step=global_step)
     print(f"Saved checkpoint after epoch {epoch_count}.")
